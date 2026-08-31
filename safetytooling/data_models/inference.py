@@ -76,7 +76,10 @@ class LLMResponse(pydantic.BaseModel):
         elif v in ["stop", "stop_sequence", "end_turn", "eos"]:
             # end_turn is for Anthropic
             return StopReason.STOP_SEQUENCE
-        elif v in ["content_filter"]:
+        elif v in ["content_filter", "refusal"]:
+            # "refusal" is Anthropic's API-level refusal stop reason (newer
+            # models, e.g. Haiku 4.5); map to CONTENT_FILTER so callers treat
+            # the response as unusable content instead of crashing (local patch).
             return StopReason.CONTENT_FILTER
         elif v in ["prompt_blocked"]:
             return StopReason.PROMPT_BLOCKED

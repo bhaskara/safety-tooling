@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from traceback import format_exc
@@ -44,10 +45,15 @@ class AnthropicChatModel(InferenceAPIModel):
     ):
         self.num_threads = num_threads
         self.prompt_history_dir = prompt_history_dir
+        # Identity-linked org keys (rolled out on the fellows org ~2026-08-30)
+        # reject requests without an anthropic-workspace-id header; pass it
+        # through from the environment when set (local patch).
+        workspace_id = os.environ.get("ANTHROPIC_WORKSPACE_ID")
+        default_headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
         if anthropic_api_key:
-            self.aclient = AsyncAnthropic(api_key=anthropic_api_key)
+            self.aclient = AsyncAnthropic(api_key=anthropic_api_key, default_headers=default_headers)
         else:
-            self.aclient = AsyncAnthropic()
+            self.aclient = AsyncAnthropic(default_headers=default_headers)
 
         self.available_requests = asyncio.BoundedSemaphore(int(self.num_threads))
         self.kwarg_change_name = {"stop": "stop_sequences"}
@@ -110,7 +116,9 @@ class AnthropicChatModel(InferenceAPIModel):
                     LOGGER.warn(f"Encountered API error: {error_info}.\nRetrying now. (Attempt {i})")
                     error_list.append(error_info)
                     api_duration = time.time() - api_start
-                    await asyncio.sleep(1.5**i)
+                    # Cap the exponential backoff: uncapped 1.5**i reaches
+                    # ~7h by attempt 25, stalling sweeps on persistent 529s.
+                    await asyncio.sleep(min(1.5**i, 60.0))
                 else:
                     break
 

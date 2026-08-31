@@ -28,3 +28,6 @@ SECRETS
 .env
 __pycache__/
 SECRETS.test
+
+# uv-generated lockfile (local dev only, not tracked upstream)
+uv.lock
