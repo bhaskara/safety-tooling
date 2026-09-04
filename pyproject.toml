@@ -10,42 +10,67 @@ requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
-    "openai==1.70.0",
-    "anthropic==0.49.0",
-    "google-cloud-aiplatform==1.87.0",
-    "google-generativeai==0.8.4",
-    "together==1.5.4",
-    "elevenlabs==1.56.0",
-    "grayswan-api==0.1.0a49",
-    "datasets==3.5.0",
-    "transformers==4.50.3",
-    "wandb==0.19.9",
-    "pydub==0.25.1",
-    "python-io==0.3",
-    "soundfile==0.13.1",
-    "llvmlite==0.44.0",
-    "librosa==0.10.2.post1",
-    "opencv-python==4.11.0.86",
-    "pandas==2.2.3",
-    "scipy==1.15.2",
-    "scikit-learn==1.6.1",
-    "matplotlib==3.10.1",
-    "plotly==6.0.1",
-    "seaborn==0.13.2",
-    "pydantic==2.11.1",
-    "jsonlines==4.0.0",
-    "Jinja2==3.1.6",
-    "tenacity==9.1.2",
-    "termcolor==3.0.1",
-    "tqdm==4.67.1",
-    "simple-parsing==0.1.7",
-    "tiktoken==0.9.0",
-    "redis==5.2.1",
-    "dotenv==0.9.9",
-    "pytest==8.3.5",
-    "pytest-asyncio==0.26.0",
-    "pytest-xdist==3.6.1",
+    # Shared-library pins relaxed to floors for the bion#58 stack upgrade (transformers 5.x /
+    # vLLM 0.28 / torch 2.13). vLLM 0.28 requires openai>=2, anthropic>=0.71, pydantic>=2.12;
+    # openai stays <3 (3.x is the httpx2 migration) and anthropic <1 (1.x removes the
+    # temperature/top_p/top_k kwargs this package forwards). Exact versions live in the
+    # consuming project's lockfile.
+    "openai>=2,<3",
+    "anthropic>=0.71,<1",
+    # together 2.x (Stainless rewrite) renames the endpoints resources this package's consumers use
+    # (AsyncEndpoints -> AsyncEndpointsResource); stay on the 1.x API until that migration is done.
+    "together>=1.5.4,<2",
+    "elevenlabs>=1.56.0",
+    "grayswan-api>=0.1.0a49",
+    "datasets>=3.5.0",
+    "transformers>=5.10,<6",
+    "wandb>=0.19.9",
+    "pandas>=2.2.3",
+    "scipy>=1.15.2",
+    "scikit-learn>=1.6.1",
+    "matplotlib>=3.10.1",
+    "plotly>=6.0.1",
+    "seaborn>=0.13.2",
+    "pydantic>=2.12,<3",
+    "jsonlines>=4.0.0",
+    "Jinja2>=3.1.6",
+    "tenacity>=9.1.2",
+    "termcolor>=3.0.1",
+    "tqdm>=4.67.1",
+    "simple-parsing>=0.1.7",
+    "tiktoken>=0.9.0",
+    "redis>=5.2.1",
+    "dotenv>=0.9.9",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+    "pytest-xdist>=3.6.1",
     "huggingface_hub",
+    # Imported directly by utils/utils.py (previously reached only transitively: gitpython via
+    # wandb<0.29, pyyaml via wandb/transformers).
+    "gitpython",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# Gemini providers (apis/inference/gemini/*, the Gemini branches of utils/audio_utils.py and
+# utils/image_utils.py). Optional because google-generativeai is deprecated upstream and its final
+# release pins google-ai-generativelanguage 0.6.15 -> protobuf<6, which cannot coexist with vLLM 0.28
+# (protobuf>=6.30). Without this extra `import safetytooling` and InferenceAPI construction work;
+# Gemini model calls raise ImportError (see utils/optional_deps.py).
+gemini = [
+    "google-generativeai>=0.8.4",
+    "google-cloud-aiplatform>=1.87.0",
+]
+# Audio/vision helpers (utils/audio_utils.py, utils/image_utils.py, apis/inference/openai/s2s.py)
+# only; kept out of the default set because their old exact pins (llvmlite 0.44, opencv-python 4.11)
+# are unsatisfiable next to vLLM 0.28 (numba 0.65 -> llvmlite 0.47; opencv-python-headless 4.13).
+# Without this extra the modules import; the functions that need these packages raise ImportError.
+media = [
+    "pydub>=0.25.1",
+    "python-io>=0.3",
+    "soundfile>=0.13.1",
+    "librosa>=0.10.2",
+    "opencv-python-headless>=4.11",
 ]
 
 [tool.setuptools]

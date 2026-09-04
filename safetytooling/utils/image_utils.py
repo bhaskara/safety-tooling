@@ -1,16 +1,32 @@
+# Image helpers: text rendering onto images (OpenCV), base64/PNG encoding for OpenAI/Anthropic
+# image messages, and Gemini image parts. opencv ("media" extra) and google-generativeai/vertexai
+# ("gemini" extra) are optional: they are imported through try_import so this module (and
+# data_models.messages, which imports it) loads without them; the functions that need them raise
+# ImportError via require() when called. The PIL/base64 paths work without any extra.
+from __future__ import annotations
+
 import base64
 import io
 from pathlib import Path
 
-import cv2
-import google.generativeai as genai
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-from vertexai.generative_models import Part
+
+from .optional_deps import require, try_import
+
+cv2 = try_import("cv2")
+genai = try_import("google.generativeai")
+_vertexai_models = try_import("vertexai.generative_models")
+Part = _vertexai_models.Part if _vertexai_models is not None else None
+
+# Value of cv2.FONT_HERSHEY_SIMPLEX, spelled as a literal so function signatures below do not
+# need cv2 at import time.
+FONT_HERSHEY_SIMPLEX = 0
 
 
 def get_default_image(text: str, height: int = 320, width: int = 320):
+    require(cv2, "cv2", "media")
     image = None
     for i in range(20):
         init_image = np.random.randint(0, 256, (height, width, 3), dtype=np.uint8)
@@ -20,7 +36,7 @@ def get_default_image(text: str, height: int = 320, width: int = 320):
             "position": (40, 40),
             "font_scale": 1.2 - i * 0.05,
             "thickness": 2,
-            "font": cv2.FONT_HERSHEY_SIMPLEX,
+            "font": FONT_HERSHEY_SIMPLEX,
             "color": (255, 255, 255),
         }
 
@@ -33,6 +49,7 @@ def get_default_image(text: str, height: int = 320, width: int = 320):
 
 
 def find_working_fonts(number_to_find: int = 200):
+    require(cv2, "cv2", "media")
     working_fonts = []
     image = np.random.randint(0, 256, (32, 32, 3), dtype=np.uint8)
     for font in range(number_to_find):
@@ -51,11 +68,12 @@ def add_text_to_image(
     position=(0, 0),
     font_scale: float = 1,
     thickness: int = 1,
-    font: int = cv2.FONT_HERSHEY_SIMPLEX,
+    font: int = FONT_HERSHEY_SIMPLEX,
     color: tuple[int, int, int] = (255, 255, 255),
 ) -> np.ndarray | None:
     """
     Adds text to an image at a specified position with given font properties.
+    Requires the "media" extra (OpenCV).
 
     Parameters:
     image (numpy.ndarray): The image to which text will be added. (height, width, 3)
@@ -70,6 +88,7 @@ def add_text_to_image(
     numpy.ndarray: The image with the added text.
     """
 
+    require(cv2, "cv2", "media")
     # assert font in VALID_FONTS, "Invalid font"
     assert all(0 <= c <= 255 for c in color), "Invalid color"
     assert 1 <= thickness <= 6, "Invalid thickness"
@@ -162,11 +181,12 @@ def get_image_file_type(image_file: str) -> str:
 
 def prepare_gemini_image(image_file: str, use_vertexai: bool = False) -> Part | genai.types.file_types.File:
     if use_vertexai:
+        require(_vertexai_models, "vertexai.generative_models", "gemini")
         encoded_image = image_to_base64(image_file)
         image_type = get_image_file_type(image_file)
         return Part.from_data(data=encoded_image, mime_type=f"image/{image_type}")
     else:
-        image = genai.upload_file(image_file)
+        image = require(genai, "google.generativeai", "gemini").upload_file(image_file)
         return image
 
 

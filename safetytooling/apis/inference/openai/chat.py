@@ -111,7 +111,7 @@ class OpenAIChatModel(OpenAIModel):
             and isinstance(kwargs["response_format"], type)
             and issubclass(kwargs["response_format"], pydantic.BaseModel)
         ):
-            api_func = self.aclient.beta.chat.completions.parse
+            api_func = self.aclient.chat.completions.parse  # openai>=2: parse left the beta namespace
             LOGGER.info(
                 f"Using parse API because response_format: {kwargs['response_format']} is of type {type(kwargs['response_format'])}"
             )

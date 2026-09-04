@@ -6,10 +6,12 @@ from enum import Enum
 from functools import partial
 from typing import List
 
-import google.generativeai as genai
-
-# from google.generativeai.types import HarmCategory, HarmProbability
 from pydantic import BaseModel
+
+from ..utils.optional_deps import require, try_import
+
+# google-generativeai is the optional "gemini" extra; only delete_genai_file() needs it.
+genai = try_import("google.generativeai")
 
 LOGGER = logging.getLogger(__name__)
 
@@ -260,6 +262,7 @@ def get_block_reason(reason_code):
 
 # Define a function to delete a file (not async)
 def delete_genai_file(file):
+    require(genai, "google.generativeai", "gemini")
     try:
         genai.delete_file(file)
         print(f"Successfully deleted file: {file}")

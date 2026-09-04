@@ -6,11 +6,8 @@ from pathlib import Path
 from traceback import format_exc
 from typing import Callable, List, Optional, Tuple
 
-import google.generativeai as genai
-from google.api_core.exceptions import InvalidArgument
-from google.generativeai.types import GenerationConfig, HarmBlockThreshold, HarmCategory
-
 from safetytooling.data_models import GeminiStopReason, LLMResponse, Prompt
+from safetytooling.utils.optional_deps import require, try_import
 
 from ....data_models.utils import (
     GEMINI_MODELS,
@@ -23,7 +20,26 @@ from ....data_models.utils import (
 )
 from ..model import InferenceAPIModel
 
+# google-generativeai is the optional "gemini" extra. InferenceAPI constructs GeminiModel
+# unconditionally, so the SDK is resolved here without failing; _require_sdk() raises an
+# informative ImportError the first time a Gemini call is actually attempted.
+genai = try_import("google.generativeai")
+_genai_types = try_import("google.generativeai.types")
+_api_core_exceptions = try_import("google.api_core.exceptions")
+if _genai_types is not None:
+    GenerationConfig = _genai_types.GenerationConfig
+    HarmBlockThreshold = _genai_types.HarmBlockThreshold
+    HarmCategory = _genai_types.HarmCategory
+    InvalidArgument = _api_core_exceptions.InvalidArgument
+else:
+    GenerationConfig = HarmBlockThreshold = HarmCategory = InvalidArgument = None
+
 LOGGER = logging.getLogger(__name__)
+
+
+def _require_sdk() -> None:
+    """Raise ImportError naming the 'gemini' extra if google-generativeai is not installed."""
+    require(genai, "google.generativeai", "gemini")
 
 
 class GeminiModel(InferenceAPIModel):
@@ -55,16 +71,27 @@ class GeminiModel(InferenceAPIModel):
         }
 
         # Maps simple input of the safety threshold values (None, few, some, most) to the HarmBlockThreshold class values
-        self.map_safety_block_name = {
-            None: HarmBlockThreshold.BLOCK_NONE,
-            "few": HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            "some": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-            "most": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        }
+        # (empty when the SDK is absent; every call path checks _require_sdk() first).
+        self.map_safety_block_name = (
+            {
+                None: HarmBlockThreshold.BLOCK_NONE,
+                "few": HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                "some": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                "most": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+            }
+            if HarmBlockThreshold is not None
+            else {}
+        )
         self.is_initialized = False
         if api_key_tag in os.environ:
-            genai.configure(api_key=os.environ[api_key_tag])
-            self.is_initialized = True
+            if genai is None:
+                LOGGER.warning(
+                    f"{api_key_tag} is set but google-generativeai is not installed (safetytooling[gemini]); "
+                    "Gemini calls will raise ImportError."
+                )
+            else:
+                genai.configure(api_key=os.environ[api_key_tag])
+                self.is_initialized = True
 
     @staticmethod
     def _print_prompt_and_response(prompt, responses):
@@ -102,7 +129,8 @@ class GeminiModel(InferenceAPIModel):
         prompt: Prompt,
         safety_settings: dict[str, HarmBlockThreshold],
         generation_config: GenerationConfig = None,
-    ) -> Tuple[str, List[genai.types.file_types.File]]:
+    ) -> Tuple[str, List["genai.types.file_types.File"]]:
+        _require_sdk()
         if not self.is_initialized:
             raise RuntimeError(
                 "Gemini is not initialized. Please set GOOGLE_API_KEY in .env before running your script"
@@ -260,6 +288,7 @@ class GeminiModel(InferenceAPIModel):
         safety_threshold: str = None,
         **kwargs,
     ) -> List[LLMResponse]:
+        _require_sdk()
         start = time.time()
 
         self.add_model_id(model_id)

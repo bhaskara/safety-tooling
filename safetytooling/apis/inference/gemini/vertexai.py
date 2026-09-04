@@ -6,13 +6,8 @@ from pathlib import Path
 from traceback import format_exc
 from typing import Callable, List, Optional
 
-import google.generativeai as genai
-import googleapiclient
-import vertexai
-from google.api_core.exceptions import InvalidArgument
-from vertexai.generative_models import GenerationConfig, GenerativeModel, HarmBlockThreshold, HarmCategory
-
 from safetytooling.data_models import GeminiStopReason, LLMResponse, Prompt
+from safetytooling.utils.optional_deps import require, try_import
 
 from ....data_models.utils import (
     DELETE_FILE_QUOTA,
@@ -27,7 +22,30 @@ from ....data_models.utils import (
 )
 from ..model import InferenceAPIModel
 
+# google-cloud-aiplatform (vertexai) and google-generativeai are the optional "gemini" extra.
+# InferenceAPI constructs GeminiVertexAIModel unconditionally, so the SDKs are resolved here
+# without failing; _require_sdk() raises an informative ImportError when a call is attempted.
+genai = try_import("google.generativeai")
+googleapiclient = try_import("googleapiclient")
+vertexai = try_import("vertexai")
+_vertexai_models = try_import("vertexai.generative_models")
+_api_core_exceptions = try_import("google.api_core.exceptions")
+if _vertexai_models is not None:
+    GenerationConfig = _vertexai_models.GenerationConfig
+    GenerativeModel = _vertexai_models.GenerativeModel
+    HarmBlockThreshold = _vertexai_models.HarmBlockThreshold
+    HarmCategory = _vertexai_models.HarmCategory
+    InvalidArgument = _api_core_exceptions.InvalidArgument
+else:
+    GenerationConfig = GenerativeModel = HarmBlockThreshold = HarmCategory = InvalidArgument = None
+
 LOGGER = logging.getLogger(__name__)
+
+
+def _require_sdk() -> None:
+    """Raise ImportError naming the 'gemini' extra if the Vertex AI / genai SDKs are not installed."""
+    require(_vertexai_models, "vertexai.generative_models", "gemini")
+    require(genai, "google.generativeai", "gemini")
 
 
 class GeminiVertexAIModel(InferenceAPIModel):
@@ -49,17 +67,28 @@ class GeminiVertexAIModel(InferenceAPIModel):
         }
 
         # Maps simple input of the safety threshold values (None, few, some, most) to the HarmBlockThreshold class values
-        self.map_safety_block_name = {
-            None: HarmBlockThreshold.BLOCK_NONE,
-            "few": HarmBlockThreshold.BLOCK_ONLY_HIGH,
-            "some": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-            "most": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        }
+        # (empty when the SDK is absent; every call path checks _require_sdk() first).
+        self.map_safety_block_name = (
+            {
+                None: HarmBlockThreshold.BLOCK_NONE,
+                "few": HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                "some": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                "most": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+            }
+            if HarmBlockThreshold is not None
+            else {}
+        )
 
         self.is_initialized = False
         if "GOOGLE_PROJECT_ID" in os.environ and "GOOGLE_PROJECT_REGION" in os.environ:
-            vertexai.init(project=os.environ["GOOGLE_PROJECT_ID"], location=os.environ["GOOGLE_PROJECT_REGION"])
-            self.is_initialized = True
+            if vertexai is None:
+                LOGGER.warning(
+                    "GOOGLE_PROJECT_ID/GOOGLE_PROJECT_REGION are set but google-cloud-aiplatform is not installed "
+                    "(safetytooling[gemini]); Vertex AI Gemini calls will raise ImportError."
+                )
+            else:
+                vertexai.init(project=os.environ["GOOGLE_PROJECT_ID"], location=os.environ["GOOGLE_PROJECT_REGION"])
+                self.is_initialized = True
 
     @staticmethod
     def _print_prompt_and_response(prompt, responses):
@@ -97,7 +126,7 @@ class GeminiVertexAIModel(InferenceAPIModel):
         prompt: Prompt,
         generation_config: GenerationConfig = None,
     ) -> str:
-
+        _require_sdk()
         if generation_config:
             model = GenerativeModel(model_name=model_id, generation_config=generation_config)
         else:
@@ -206,6 +235,7 @@ class GeminiVertexAIModel(InferenceAPIModel):
         safety_threshold: str = None,
         **kwargs,
     ) -> List[LLMResponse]:
+        _require_sdk()
         start = time.time()
 
         self.add_model_id(model_id)

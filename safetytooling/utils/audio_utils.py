@@ -1,3 +1,9 @@
+# WAV file handling, audio conversion/resampling, and Gemini / OpenAI-realtime audio payloads.
+# librosa/soundfile ("media" extra) and google-generativeai/vertexai ("gemini" extra) are optional:
+# they are imported through try_import so this module (and data_models.messages, which imports it)
+# loads without them; the functions that need them raise ImportError via require() when called.
+from __future__ import annotations
+
 import base64
 import io
 import struct
@@ -7,12 +13,16 @@ from pathlib import Path
 from string import Template
 from subprocess import PIPE, Popen
 
-import google.generativeai as genai
-import librosa
 import numpy as np
 import scipy.io.wavfile as wavfile
-import soundfile as sf
-from vertexai.generative_models import Part
+
+from .optional_deps import require, try_import
+
+genai = try_import("google.generativeai")
+librosa = try_import("librosa")
+sf = try_import("soundfile")
+_vertexai_models = try_import("vertexai.generative_models")
+Part = _vertexai_models.Part if _vertexai_models is not None else None
 
 
 class WAVFile:
@@ -223,8 +233,9 @@ def get_mime_type(audio_file) -> str:
 
 
 def load_audio(audio_file: str, reader="librosa") -> bytes:
+    require(sf, "soundfile", "media")
     if reader == "librosa":
-        audio_data, sr = librosa.load(audio_file)
+        audio_data, sr = require(librosa, "librosa", "media").load(audio_file)
     elif reader == "soundfile":
         audio_data, sr = sf.read(audio_file)
     else:
@@ -315,10 +326,11 @@ def convert_to_wav_ffmpeg(input_path: str, output_path: str, sample_rate=16000):
 
 def prepare_audio_part(audio_file: str, use_vertexai: bool = False) -> Part | genai.types.file_types.File:
     if use_vertexai:
+        require(_vertexai_models, "vertexai.generative_models", "gemini")
         audio_bytes = load_audio(audio_file)
         return Part.from_data(data=audio_bytes, mime_type=get_mime_type(audio_file))
     else:
-        audio = genai.upload_file(audio_file)
+        audio = require(genai, "google.generativeai", "gemini").upload_file(audio_file)
         return audio
 
 

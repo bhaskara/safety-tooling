@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import websockets
-from pydub import AudioSegment
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from websockets.asyncio.client import ClientConnection
 from websockets.exceptions import WebSocketException
 
 from safetytooling.data_models import LLMResponse, Prompt
 from safetytooling.data_models.hashable import deterministic_hash
+from safetytooling.utils.optional_deps import require, try_import
 
 from ..model import InferenceAPIModel
 
@@ -64,6 +64,8 @@ class OpenAIS2SModel(InferenceAPIModel):
     def process_responses(self, audio_output: List[bytes], text_response: str, audio_out_dir: Path | str):
         audio_filename = audio_out_dir / Path(deterministic_hash(text_response) + ".wav")
 
+        # pydub is the optional "media" extra; api.py imports this module unconditionally.
+        AudioSegment = require(try_import("pydub"), "pydub", "media").AudioSegment
         combined_audio = AudioSegment.empty()
         for audio_bytes in audio_output:
             segment = AudioSegment(data=base64.b64decode(audio_bytes), sample_width=2, frame_rate=24000, channels=1)

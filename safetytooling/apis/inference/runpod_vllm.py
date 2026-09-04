@@ -56,7 +56,9 @@ class VLLMChatModel(InferenceAPIModel):
         }
 
     async def query(self, model_url: str, payload: dict, session: aiohttp.ClientSession, timeout: int = 1000) -> dict:
-        async with session.post(model_url, headers=self.headers, json=payload, timeout=timeout) as response:
+        async with session.post(
+            model_url, headers=self.headers, json=payload, timeout=aiohttp.ClientTimeout(total=timeout)
+        ) as response:
             if response.status != 200:
                 error_text = await response.text()
                 if "<!DOCTYPE html>" in str(error_text) and "<title>" in str(error_text):
