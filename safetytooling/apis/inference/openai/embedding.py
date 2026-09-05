@@ -1,12 +1,12 @@
 import asyncio
 import logging
+import os
 import time
 import traceback
 
 import openai
 import openai._models
 import openai.types
-
 from safetytooling.data_models import EmbeddingParams, EmbeddingResponseBase64
 
 from .utils import EMBEDDING_MODELS, price_per_token
@@ -20,8 +20,19 @@ class OpenAIEmbeddingModel:
         self.num_threads = 1
         self.batch_size = batch_size  # Max batch size for embedding endpoint
 
-        self.aclient = openai.AsyncClient()
+        self._aclient: openai.AsyncClient | None = None
         self.available_requests = asyncio.BoundedSemaphore(self.num_threads)
+
+    @property
+    def aclient(self) -> openai.AsyncClient:
+        # The OpenAI client is built on first use: openai>=2 refuses to construct without a key, and
+        # InferenceAPI instantiates every provider up front, so an eager client would make the whole
+        # API unusable on hosts that carry only Anthropic keys (the cluster, since the 2026-09-04 reset).
+        if self._aclient is None:
+            if "OPENAI_API_KEY" not in os.environ:
+                raise RuntimeError("OpenAI embeddings need OPENAI_API_KEY in the environment")
+            self._aclient = openai.AsyncClient()
+        return self._aclient
 
     async def embed(
         self,

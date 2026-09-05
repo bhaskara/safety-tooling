@@ -1,13 +1,13 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
 import openai
 import openai.types
 import openai.types.chat
-
 from safetytooling.data_models import LLMResponse, Prompt
 from safetytooling.utils import utils
 
@@ -16,10 +16,22 @@ LOGGER = logging.getLogger(__name__)
 
 class OpenAIModelBatch:
     def __init__(self, openai_api_key: str | None = None):
-        if openai_api_key:
-            self.client = openai.OpenAI(api_key=openai_api_key)
-        else:
-            self.client = openai.OpenAI()
+        self.openai_api_key = openai_api_key
+        self._client: openai.OpenAI | None = None
+
+    @property
+    def client(self) -> openai.OpenAI:
+        # The OpenAI client is built on first use: openai>=2 refuses to construct without a key, and
+        # InferenceAPI instantiates every provider up front, so an eager client would make the whole
+        # API unusable on hosts that carry only Anthropic keys (the cluster, since the 2026-09-04 reset).
+        if self._client is None:
+            if self.openai_api_key:
+                self._client = openai.OpenAI(api_key=self.openai_api_key)
+            elif "OPENAI_API_KEY" in os.environ:
+                self._client = openai.OpenAI()
+            else:
+                raise RuntimeError("OpenAI batch API needs an api key argument or OPENAI_API_KEY in the environment")
+        return self._client
 
     def create_message_batch(self, input_file_id: str) -> dict:
         """Create a batch of messages."""

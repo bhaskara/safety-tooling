@@ -8,13 +8,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import websockets
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-from websockets.asyncio.client import ClientConnection
-from websockets.exceptions import WebSocketException
-
 from safetytooling.data_models import LLMResponse, Prompt
 from safetytooling.data_models.hashable import deterministic_hash
 from safetytooling.utils.optional_deps import require, try_import
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from websockets.asyncio.client import ClientConnection
+from websockets.exceptions import WebSocketException
 
 from ..model import InferenceAPIModel
 
@@ -46,7 +45,9 @@ class S2SRateLimiter:
 
 class OpenAIS2SModel(InferenceAPIModel):
     def __init__(self):
-        self.api_key = os.environ["OPENAI_API_KEY"]
+        # Read lazily (see api_key): InferenceAPI constructs this model unconditionally, and hosts
+        # that carry only Anthropic keys must still be able to build an InferenceAPI.
+        self._api_key: str | None = None
         self.base_url = "wss://api.openai.com/v1/realtime"
         self.model = "gpt-4o-realtime-preview-2024-10-01"
         self.max_size = 10 * 1024 * 1024  # 10MB
@@ -55,6 +56,14 @@ class OpenAIS2SModel(InferenceAPIModel):
         self.max_attempts = 10
 
         self.allowed_kwargs = {"temperature", "max_output_tokens", "voice", "audio_format"}
+
+    @property
+    def api_key(self) -> str:
+        if self._api_key is None:
+            if "OPENAI_API_KEY" not in os.environ:
+                raise RuntimeError("OpenAI speech-to-speech needs OPENAI_API_KEY in the environment")
+            self._api_key = os.environ["OPENAI_API_KEY"]
+        return self._api_key
 
     def log_retry(self, retry_state):
         if retry_state.attempt_number > 1:

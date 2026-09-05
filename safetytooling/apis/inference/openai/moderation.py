@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from traceback import format_exc
 from typing import Awaitable
@@ -7,9 +8,8 @@ from typing import Awaitable
 import openai
 import openai._models
 import openai.types
-from tqdm.asyncio import tqdm_asyncio
-
 from safetytooling.data_models.inference import TaggedModeration
+from tqdm.asyncio import tqdm_asyncio
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,8 +27,19 @@ class OpenAIModerationModel:
         self.num_threads = num_threads
         self._batch_size = 32  # Max batch size for moderation endpoint
 
-        self.aclient = openai.AsyncClient()
+        self._aclient: openai.AsyncClient | None = None
         self.available_requests = asyncio.BoundedSemaphore(self.num_threads)
+
+    @property
+    def aclient(self) -> openai.AsyncClient:
+        # The OpenAI client is built on first use: openai>=2 refuses to construct without a key, and
+        # InferenceAPI instantiates every provider up front, so an eager client would make the whole
+        # API unusable on hosts that carry only Anthropic keys (the cluster, since the 2026-09-04 reset).
+        if self._aclient is None:
+            if "OPENAI_API_KEY" not in os.environ:
+                raise RuntimeError("OpenAI moderation needs OPENAI_API_KEY in the environment")
+            self._aclient = openai.AsyncClient()
+        return self._aclient
 
     async def _single_moderation_request(
         self,
