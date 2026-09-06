@@ -20,6 +20,39 @@ from .utils import count_tokens, get_rate_limit, price_per_token
 LOGGER = logging.getLogger(__name__)
 
 
+#: Request options understood by vLLM's OpenAI-compatible server but absent from the OpenAI
+#: API. openai>=2 rejects unknown keyword arguments to ``chat.completions.create`` (TypeError),
+#: so they must travel in ``extra_body``, which the SDK merges into the JSON body verbatim.
+VLLM_EXTENSION_KWARGS = (
+    "chat_template_kwargs",
+    "skip_special_tokens",
+    "add_generation_prompt",
+    "continue_final_message",
+)
+
+
+def route_vllm_extensions(kwargs: dict) -> dict:
+    """Move vLLM-only request options from ``kwargs`` into ``kwargs["extra_body"]``.
+
+    Parameters
+    ----------
+    kwargs : dict
+        Keyword arguments destined for ``chat.completions.create``.
+
+    Returns
+    -------
+    dict
+        A copy in which every key of ``VLLM_EXTENSION_KWARGS`` present in ``kwargs`` has been
+        removed from the top level and merged into ``extra_body`` (an existing ``extra_body``
+        is preserved; the routed keys win on collision). Unchanged copy when none is present.
+    """
+    routed = {k: v for k, v in kwargs.items() if k not in VLLM_EXTENSION_KWARGS}
+    extensions = {k: kwargs[k] for k in VLLM_EXTENSION_KWARGS if k in kwargs}
+    if extensions:
+        routed["extra_body"] = {**(kwargs.get("extra_body") or {}), **extensions}
+    return routed
+
+
 class OpenAIChatModel(OpenAIModel):
     @retry(stop=stop_after_attempt(8), wait=wait_fixed(2))
     async def _get_dummy_response_header(self, model_id: str):
@@ -102,6 +135,8 @@ class OpenAIChatModel(OpenAIModel):
             kwargs["max_completion_tokens"] = kwargs["max_tokens"]
             del kwargs["max_tokens"]
 
+        kwargs = route_vllm_extensions(kwargs)
+
         prompt_file = self.create_prompt_history_file(prompt, model_id, self.prompt_history_dir)
         api_start = time.time()
 
@@ -176,5 +211,5 @@ class OpenAIChatModel(OpenAIModel):
             messages=prompt.openai_format(),
             model=model_id,
             stream=True,
-            **kwargs,
+            **route_vllm_extensions(kwargs),
         )
