@@ -2,7 +2,6 @@ from typing import Sequence
 
 import numpy as np
 import scipy.special
-import sklearn.metrics
 
 
 def logprobs_to_logodds(logprobs: np.ndarray, base: float | None = None) -> np.ndarray:
@@ -47,6 +46,10 @@ def roc_curve_with_auc(y_true: np.ndarray, y_score: np.ndarray) -> tuple[np.ndar
     """
     Compute ROC curve and AUC.
     """
+    # Lazy import: sklearn costs ~0.4 s / tens of MB at import and this module sits on the
+    # import path of every InferenceAPI user; only the ROC helpers need it.
+    import sklearn.metrics
+
     fpr, tpr, _ = sklearn.metrics.roc_curve(
         y_true=y_true,
         y_score=y_score,

@@ -7,7 +7,6 @@ from pathlib import Path
 from traceback import format_exc
 
 import aiohttp
-from transformers import AutoTokenizer
 
 from safetytooling.data_models import LLMResponse, Prompt, StopReason
 from safetytooling.utils import math_utils
@@ -59,6 +58,10 @@ class HuggingFaceModel(InferenceAPIModel):
 
     def count_tokens(self, text, model_name):
         if model_name not in self.tokenizers:
+            # Lazy import: transformers pulls in torch (~1 GB RSS), and this module is on the
+            # import path of every InferenceAPI user, most of which never touch HF endpoints.
+            from transformers import AutoTokenizer
+
             self.tokenizers[model_name] = AutoTokenizer.from_pretrained(model_name, token=self.token)
         tokenizer = self.tokenizers[model_name]
         return len(tokenizer.tokenize(text))
