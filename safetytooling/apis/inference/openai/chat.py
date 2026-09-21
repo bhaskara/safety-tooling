@@ -28,6 +28,7 @@ VLLM_EXTENSION_KWARGS = (
     "skip_special_tokens",
     "add_generation_prompt",
     "continue_final_message",
+    "bad_words",
 )
 
 
