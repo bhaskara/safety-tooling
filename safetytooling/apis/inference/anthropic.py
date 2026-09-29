@@ -41,10 +41,16 @@ LOGGER = logging.getLogger(__name__)
 # Callers throughout science_synth_facts pass temperature=1 unconditionally, so the adapter drops the knobs here.
 NO_SAMPLING_KWARGS_MODEL_PREFIXES: tuple[str, ...] = ("claude-sonnet-5", "claude-opus-5", "claude-fable")
 UNSUPPORTED_SAMPLING_KWARGS: tuple[str, ...] = ("temperature", "top_p", "top_k")
+# Models that think by default (adaptive) when the request carries no ``thinking`` block. Thinking tokens count
+# against ``max_tokens``, so a caller sized for text alone (the 2000-token default of the belief-eval generators) can
+# get a thinking-only reply and a "returned a response with no text" error. For these models the adapter sends
+# ``thinking={"type": "disabled"}`` unless the caller passes ``thinking`` itself (Fable rejects an explicit thinking
+# parameter and is therefore not listed).
+DEFAULT_THINKING_DISABLED_MODEL_PREFIXES: tuple[str, ...] = ("claude-sonnet-5", "claude-opus-5")
 
 
 def strip_unsupported_sampling_kwargs(model_id: str, kwargs: dict) -> dict:
-    """Drop ``temperature`` / ``top_p`` / ``top_k`` for models that reject them (pure; returns a new dict).
+    """Adapt sampling kwargs to models that reject or reinterpret them (pure; returns a new dict).
 
     Parameters
     ----------
@@ -56,12 +62,16 @@ def strip_unsupported_sampling_kwargs(model_id: str, kwargs: dict) -> dict:
     Returns
     -------
     dict
-        ``kwargs`` unchanged for other models; without the unsupported keys when ``model_id`` starts with one of
-        :data:`NO_SAMPLING_KWARGS_MODEL_PREFIXES`.
+        ``kwargs`` unchanged for other models. For a model in :data:`NO_SAMPLING_KWARGS_MODEL_PREFIXES` the
+        ``temperature`` / ``top_p`` / ``top_k`` keys are dropped; for a model in
+        :data:`DEFAULT_THINKING_DISABLED_MODEL_PREFIXES` a missing ``thinking`` key is set to ``{"type": "disabled"}``.
     """
-    if not model_id.startswith(NO_SAMPLING_KWARGS_MODEL_PREFIXES):
-        return dict(kwargs)
-    return {k: v for k, v in kwargs.items() if k not in UNSUPPORTED_SAMPLING_KWARGS}
+    out = dict(kwargs)
+    if model_id.startswith(NO_SAMPLING_KWARGS_MODEL_PREFIXES):
+        out = {k: v for k, v in out.items() if k not in UNSUPPORTED_SAMPLING_KWARGS}
+    if model_id.startswith(DEFAULT_THINKING_DISABLED_MODEL_PREFIXES) and "thinking" not in out:
+        out["thinking"] = {"type": "disabled"}
+    return out
 
 class AnthropicChatModel(InferenceAPIModel):
     def __init__(
