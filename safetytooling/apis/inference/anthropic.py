@@ -36,6 +36,33 @@ VISION_MODELS = {
 LOGGER = logging.getLogger(__name__)
 
 
+
+# Models that reject the classic sampling knobs (the API answers 400 "`temperature` is deprecated for this model").
+# Callers throughout science_synth_facts pass temperature=1 unconditionally, so the adapter drops the knobs here.
+NO_SAMPLING_KWARGS_MODEL_PREFIXES: tuple[str, ...] = ("claude-sonnet-5", "claude-opus-5", "claude-fable")
+UNSUPPORTED_SAMPLING_KWARGS: tuple[str, ...] = ("temperature", "top_p", "top_k")
+
+
+def strip_unsupported_sampling_kwargs(model_id: str, kwargs: dict) -> dict:
+    """Drop ``temperature`` / ``top_p`` / ``top_k`` for models that reject them (pure; returns a new dict).
+
+    Parameters
+    ----------
+    model_id : str
+        Anthropic model id.
+    kwargs : dict
+        Sampling kwargs bound for ``messages.create``.
+
+    Returns
+    -------
+    dict
+        ``kwargs`` unchanged for other models; without the unsupported keys when ``model_id`` starts with one of
+        :data:`NO_SAMPLING_KWARGS_MODEL_PREFIXES`.
+    """
+    if not model_id.startswith(NO_SAMPLING_KWARGS_MODEL_PREFIXES):
+        return dict(kwargs)
+    return {k: v for k, v in kwargs.items() if k not in UNSUPPORTED_SAMPLING_KWARGS}
+
 class AnthropicChatModel(InferenceAPIModel):
     def __init__(
         self,
@@ -82,6 +109,7 @@ class AnthropicChatModel(InferenceAPIModel):
         # Other surplus parameters will still raise an error
         if "seed" in kwargs:
             del kwargs["seed"]
+        kwargs = strip_unsupported_sampling_kwargs(model_id, kwargs)
 
         sys_prompt, chat_messages = prompt.anthropic_format()
         prompt_file = self.create_prompt_history_file(prompt, model_id, self.prompt_history_dir)
@@ -259,6 +287,7 @@ class AnthropicModelBatch:
         # Other surplus parameters will still raise an error
         if "seed" in kwargs:
             del kwargs["seed"]
+        kwargs = strip_unsupported_sampling_kwargs(model_id, kwargs)
 
         requests = []
         for i, prompt in enumerate(prompts):
