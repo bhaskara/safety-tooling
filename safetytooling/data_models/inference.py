@@ -85,6 +85,9 @@ class LLMResponse(pydantic.BaseModel):
             return StopReason.PROMPT_BLOCKED
         elif v in ["api_error"]:
             return StopReason.API_ERROR
+        elif v in ["unknown"]:
+            # a message with no content blocks and no stop reason (Anthropic adapter)
+            return StopReason.UNKNOWN
         elif v in ["recitation"]:
             return GeminiStopReason.RECITATION
         elif v in ["safety"]:

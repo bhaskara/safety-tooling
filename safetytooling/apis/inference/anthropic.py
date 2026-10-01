@@ -193,6 +193,23 @@ class AnthropicChatModel(InferenceAPIModel):
             else:
                 raise RuntimeError(f"Failed to get a response from the API after {max_attempts} attempts.")
 
+        elif len(response.content) == 0:
+            # The API can return a message with no content blocks at all (seen 2026-10-01 with
+            # claude-sonnet-4-5 judging bee_speed downstream-task answers). Hand back an empty
+            # completion carrying the API's stop_reason so the caller can mark that sample
+            # unjudged; raising on content[0] here took whole grading sweeps down with it.
+            LOGGER.warning(
+                f"{model_id} returned a message with no content blocks (stop_reason={response.stop_reason!r}); "
+                "returning an empty completion"
+            )
+            response = LLMResponse(
+                model_id=model_id,
+                completion="",
+                stop_reason=response.stop_reason or "unknown",
+                duration=duration,
+                api_duration=api_duration,
+                cost=0,
+            )
         else:
             is_reasoning = response.content[0].type == "thinking"
             assert (
