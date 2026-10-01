@@ -216,9 +216,24 @@ class AnthropicChatModel(InferenceAPIModel):
                 is_reasoning or len(response.content) == 1
             ), "Anthropic reasoning models don't support multiple completions"
 
-            if is_reasoning:
-                if not hasattr(response.content[-1], "text"):
-                    raise RuntimeError(f"Anthropic reasoning model {model_id} returned a response with no text")
+            if is_reasoning and not hasattr(response.content[-1], "text"):
+                # A thinking block with no text block after it (seen 2026-10-01 with claude-sonnet-4-5 as a
+                # judge): same treatment as an empty content list — an empty completion the caller can mark
+                # unjudged, instead of failing the whole sweep.
+                LOGGER.warning(
+                    f"{model_id} returned thinking but no text block (stop_reason={response.stop_reason!r}); "
+                    "returning an empty completion"
+                )
+                response = LLMResponse(
+                    model_id=model_id,
+                    completion="",
+                    stop_reason=response.stop_reason or "unknown",
+                    duration=duration,
+                    api_duration=api_duration,
+                    cost=0,
+                    reasoning_content=getattr(response.content[0], "thinking", None),
+                )
+            elif is_reasoning:
                 response = LLMResponse(
                     model_id=model_id,
                     completion=response.content[-1].text,
