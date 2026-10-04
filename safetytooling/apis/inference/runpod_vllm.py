@@ -55,7 +55,11 @@ class VLLMChatModel(InferenceAPIModel):
             "stop": StopReason.STOP_SEQUENCE.value,
         }
 
-    async def query(self, model_url: str, payload: dict, session: aiohttp.ClientSession, timeout: int = 1000) -> dict:
+    async def query(self, model_url: str, payload: dict, session: aiohttp.ClientSession, timeout: int | None = None) -> dict:
+        # Per-request total timeout in seconds; the default 1000 s is too short for long thinking-on generations on large
+        # models (a 20k-token Qwen3.8-27B completion takes ~1000 s), so it can be raised with VLLM_REQUEST_TIMEOUT.
+        if timeout is None:
+            timeout = int(os.environ.get("VLLM_REQUEST_TIMEOUT", "1000"))
         async with session.post(
             model_url, headers=self.headers, json=payload, timeout=aiohttp.ClientTimeout(total=timeout)
         ) as response:
