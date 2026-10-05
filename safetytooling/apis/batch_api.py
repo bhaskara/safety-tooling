@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Literal, Callable
 
+from anthropic import AccessTokenProvider
+
 from safetytooling.apis.inference.anthropic import ANTHROPIC_MODELS, AnthropicModelBatch
 from safetytooling.apis.inference.cache_manager import get_cache_manager
 from safetytooling.apis.inference.openai.batch_api import OpenAIModelBatch
@@ -54,6 +56,7 @@ class BatchInferenceAPI:
         cache_dir: Path | Literal["default"] | None = "default",
         use_redis: bool = False,
         anthropic_api_key: str | None = None,
+        anthropic_credentials: AccessTokenProvider | None = None,
         openai_api_key: str | None = None,
         no_cache: bool = False,
     ):
@@ -67,6 +70,8 @@ class BatchInferenceAPI:
                 Set to "default" to use the default directory.
             use_redis: Whether to use Redis for caching.
             anthropic_api_key: Optional API key for Anthropic. If not provided, will try to load from environment.
+            anthropic_credentials: Optional anthropic SDK access-token provider (e.g. WorkloadIdentityCredentials),
+                exclusive with anthropic_api_key (local patch).
             openai_api_key: Optional API key for OpenAI. If not provided, will try to load from environment.
             no_cache: If True, disable caching regardless of other settings.
         """
@@ -99,7 +104,7 @@ class BatchInferenceAPI:
             self.cache_manager = get_cache_manager(self.cache_dir, self.use_redis)
             print(f"{self.cache_manager=}")
 
-        self._anthropic_batch = AnthropicModelBatch(anthropic_api_key=anthropic_api_key)
+        self._anthropic_batch = AnthropicModelBatch(anthropic_api_key=anthropic_api_key, anthropic_credentials=anthropic_credentials)
         self._openai_batch = OpenAIModelBatch(openai_api_key=openai_api_key)
 
     async def __call__(

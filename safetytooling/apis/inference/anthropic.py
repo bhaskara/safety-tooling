@@ -8,7 +8,7 @@ from traceback import format_exc
 from typing import Callable
 
 import anthropic.types
-from anthropic import AsyncAnthropic
+from anthropic import AccessTokenProvider, AsyncAnthropic
 from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 from anthropic.types.messages.batch_create_params import Request
 
@@ -73,24 +73,48 @@ def strip_unsupported_sampling_kwargs(model_id: str, kwargs: dict) -> dict:
         out["thinking"] = {"type": "disabled"}
     return out
 
+def anthropic_client_kwargs(api_key: str | None, credentials: AccessTokenProvider | None) -> dict:
+    """Constructor kwargs for ``anthropic.Anthropic`` / ``AsyncAnthropic`` from one credential (local patch).
+
+    Exactly one of ``api_key`` / ``credentials`` may be given; with neither, the SDK resolves
+    from the environment (``ANTHROPIC_API_KEY``, else the workload-identity variables).
+    Identity-linked org *keys* (fellows orgs since ~2026-08-30) reject requests without an
+    ``anthropic-workspace-id`` header, so ``ANTHROPIC_WORKSPACE_ID`` is forwarded when a key is
+    in play (explicit, or in the environment). Federation tokens are already workspace-scoped
+    and do not accept per-request workspace selection, so no header goes with ``credentials``.
+
+    Raises:
+        TypeError: both ``api_key`` and ``credentials`` given.
+    """
+    if api_key and credentials is not None:
+        raise TypeError("pass anthropic_api_key or anthropic_credentials, not both")
+    kwargs: dict = {}
+    if credentials is not None:
+        kwargs["credentials"] = credentials
+        return kwargs
+    if api_key:
+        kwargs["api_key"] = api_key
+    workspace_id = os.environ.get("ANTHROPIC_WORKSPACE_ID")
+    if workspace_id and (api_key or os.environ.get("ANTHROPIC_API_KEY")):
+        kwargs["default_headers"] = {"anthropic-workspace-id": workspace_id}
+    return kwargs
+
+
 class AnthropicChatModel(InferenceAPIModel):
     def __init__(
         self,
         num_threads: int,
         prompt_history_dir: Path | None = None,
         anthropic_api_key: str | None = None,
+        anthropic_credentials: AccessTokenProvider | None = None,
     ):
+        """``anthropic_credentials`` (an SDK access-token provider such as
+        ``WorkloadIdentityCredentials``) and ``anthropic_api_key`` are mutually exclusive; with
+        neither, the SDK resolves credentials from the environment (``ANTHROPIC_API_KEY``, or the
+        workload-identity variables). Local patch."""
         self.num_threads = num_threads
         self.prompt_history_dir = prompt_history_dir
-        # Identity-linked org keys (rolled out on the fellows org ~2026-08-30)
-        # reject requests without an anthropic-workspace-id header; pass it
-        # through from the environment when set (local patch).
-        workspace_id = os.environ.get("ANTHROPIC_WORKSPACE_ID")
-        default_headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
-        if anthropic_api_key:
-            self.aclient = AsyncAnthropic(api_key=anthropic_api_key, default_headers=default_headers)
-        else:
-            self.aclient = AsyncAnthropic(default_headers=default_headers)
+        self.aclient = AsyncAnthropic(**anthropic_client_kwargs(anthropic_api_key, anthropic_credentials))
 
         self.available_requests = asyncio.BoundedSemaphore(int(self.num_threads))
         self.kwarg_change_name = {"stop": "stop_sequences"}
@@ -279,11 +303,9 @@ class AnthropicChatModel(InferenceAPIModel):
 
 
 class AnthropicModelBatch:
-    def __init__(self, anthropic_api_key: str | None = None):
-        if anthropic_api_key:
-            self.client = anthropic.Anthropic(api_key=anthropic_api_key)
-        else:
-            self.client = anthropic.Anthropic()
+    def __init__(self, anthropic_api_key: str | None = None, anthropic_credentials: AccessTokenProvider | None = None):
+        """Same credential rules as ``AnthropicChatModel`` (local patch)."""
+        self.client = anthropic.Anthropic(**anthropic_client_kwargs(anthropic_api_key, anthropic_credentials))
 
     def create_message_batch(self, requests: list[dict]) -> dict:
         """Create a batch of messages."""

@@ -9,6 +9,8 @@ from itertools import chain
 from pathlib import Path
 from typing import Awaitable, Callable, Literal
 
+from anthropic import AccessTokenProvider
+
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm.auto import tqdm
@@ -82,6 +84,7 @@ class InferenceAPI:
         empty_completion_threshold: int = 0,
         use_gpu_models: bool = False,
         anthropic_api_key: str | None = None,
+        anthropic_credentials: AccessTokenProvider | None = None,
         openai_api_key: str | None = None,
         print_prompt_and_response: bool = False,
         use_provider_if_model_not_found: str | None = None,
@@ -95,6 +98,9 @@ class InferenceAPI:
         Set prompt_history_dir to "default" to use the default prompt history directory.
 
         If REDIS_CACHE is set to true, use_redis will be set to true in any case.
+
+        anthropic_credentials: an anthropic SDK access-token provider (e.g. WorkloadIdentityCredentials),
+        exclusive with anthropic_api_key; see AnthropicChatModel (local patch).
         """
 
         if openai_fraction_rate_limit > 1:
@@ -175,6 +181,7 @@ class InferenceAPI:
             num_threads=self.anthropic_num_threads,
             prompt_history_dir=self.prompt_history_dir,
             anthropic_api_key=anthropic_api_key,
+            anthropic_credentials=anthropic_credentials,
         )
 
         self._huggingface = HuggingFaceModel(

@@ -66,7 +66,9 @@ def setup_environment(
     # warn if we do not have an openai api key
     if "OPENAI_API_KEY" not in os.environ:
         LOGGER.warning("OPENAI_API_KEY not found in environment, OpenAI API will not be available")
-    if "ANTHROPIC_API_KEY" not in os.environ:
+    # Workload identity federation (the fellows' keyless setup) needs no key: the SDK reads
+    # ANTHROPIC_FEDERATION_RULE_ID and friends instead (local patch).
+    if "ANTHROPIC_API_KEY" not in os.environ and "ANTHROPIC_FEDERATION_RULE_ID" not in os.environ:
         LOGGER.warning("ANTHROPIC_API_KEY not found in environment, Anthropic API will not be available")
 
     for key in [
