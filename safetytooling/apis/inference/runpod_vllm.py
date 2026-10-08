@@ -255,15 +255,20 @@ class VLLMChatModel(InferenceAPIModel):
             LOGGER.error(f"Invalid response format: {response_data}")
             raise RuntimeError(f"Invalid response format: {response_data}")
 
+        # A server with a reasoning parser (vLLM --reasoning-parser) returns the chain of thought as
+        # message.reasoning_content and leaves message.content None when the reply ended inside the
+        # think block (finish_reason "length"); such a sample is an empty, truncated completion, not
+        # an error. OpenRouter-style servers name the field "reasoning".
         responses = [
             LLMResponse(
                 model_id=model_id,
-                completion=choice["message"]["content"],
+                completion=choice["message"].get("content") or "",
                 stop_reason=choice["finish_reason"],
                 api_duration=api_duration,
                 duration=duration,
                 cost=0,
                 logprobs=self.convert_top_logprobs(choice["logprobs"]) if choice.get("logprobs") is not None else None,
+                reasoning_content=choice["message"].get("reasoning_content") or choice["message"].get("reasoning"),
             )
             for choice in response_data["choices"]
         ]
